@@ -70,11 +70,31 @@ void OpenHaystack::setup() {
 }
 
 float OpenHaystack::get_setup_priority() const { return setup_priority::BLUETOOTH; }
+
 void OpenHaystack::ble_core_task(void *params) {
   ble_setup();
 
   while (true) {
-    delay(1000);  // NOLINT
+    // Quảng bá trong 10 giây
+    esp_err_t err = esp_ble_gap_start_advertising(&ble_adv_params);
+    if (err != ESP_OK) {
+      ESP_LOGE(TAG, "esp_ble_gap_start_advertising failed: %d", err);
+    }
+    ESP_LOGD(TAG, "Started advertising for 10 seconds...");
+    
+    vTaskDelay(10000 / portTICK_PERIOD_MS);  // Quảng bá trong 10 giây
+
+    // Dừng quảng bá sau 10 giây
+    err = esp_ble_gap_stop_advertising();
+    if (err != ESP_OK) {
+      ESP_LOGE(TAG, "esp_ble_gap_stop_advertising failed: %d", err);
+    }
+    ESP_LOGD(TAG, "Stopped advertising.");
+
+    // Đưa ESP32 vào chế độ deep sleep trong 60 giây
+    ESP_LOGD(TAG, "Entering deep sleep for 60 seconds...");
+    esp_sleep_enable_timer_wakeup(60000000);  // Thiết lập thời gian wakeup 60 giây
+    esp_deep_sleep_start();  // Bắt đầu deep sleep
   }
 }
 
