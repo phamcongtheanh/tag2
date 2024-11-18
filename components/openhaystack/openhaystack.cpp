@@ -33,6 +33,27 @@ static esp_ble_adv_params_t ble_adv_params = {
     .adv_filter_policy = ADV_FILTER_ALLOW_SCAN_ANY_CON_ANY,
 };
 
+void OpenHaystack::dump_config() {
+  ESP_LOGCONFIG(TAG, "OpenHaystack:");
+  ESP_LOGCONFIG(TAG,
+                "  Bluetooth MAC: %02X:%02X:%02X:%02X:%02X:%02X",
+                this->random_address_[0],
+                this->random_address_[1],
+                this->random_address_[2],
+                this->random_address_[3],
+                this->random_address_[4],
+                this->random_address_[5]
+  );
+  ESP_LOGCONFIG(TAG,
+                "  Advertising Key (first six digits): %02X %02X %02X %02X %02X %02X",
+                this->advertising_key_[0],
+                this->advertising_key_[1],
+                this->advertising_key_[2],
+                this->advertising_key_[3],
+                this->advertising_key_[4],
+                this->advertising_key_[5]
+  );
+}
 
 void OpenHaystack::setup() {
   ESP_LOGCONFIG(TAG, "Setting up OpenHaystack device...");
@@ -54,16 +75,25 @@ void OpenHaystack::ble_core_task(void *params) {
   ble_setup();
 
   while (true) {
-    // Quảng bá trong 5 giây
+    // Quảng bá trong 10 giây
     esp_err_t err = esp_ble_gap_start_advertising(&ble_adv_params);
+    if (err != ESP_OK) {
+      ESP_LOGE(TAG, "esp_ble_gap_start_advertising failed: %d", err);
+    }
+    ESP_LOGD(TAG, "Started advertising for 10 seconds...");
     
-    vTaskDelay(5000 / portTICK_PERIOD_MS);  // Quảng bá trong 10 giây
+    vTaskDelay(10000 / portTICK_PERIOD_MS);  // Quảng bá trong 10 giây
 
-    // Dừng quảng bá sau 5 giây
+    // Dừng quảng bá sau 10 giây
     err = esp_ble_gap_stop_advertising();
+    if (err != ESP_OK) {
+      ESP_LOGE(TAG, "esp_ble_gap_stop_advertising failed: %d", err);
+    }
+    ESP_LOGD(TAG, "Stopped advertising.");
 
-    // Đưa ESP32 vào chế độ deep sleep trong 120 giây
-    esp_sleep_enable_timer_wakeup(120000000);  // Thiết lập thời gian wakeup 60 giây
+    // Đưa ESP32 vào chế độ deep sleep trong 60 giây
+    ESP_LOGD(TAG, "Entering deep sleep for 60 seconds...");
+    esp_sleep_enable_timer_wakeup(60000000);  // Thiết lập thời gian wakeup 60 giây
     esp_deep_sleep_start();  // Bắt đầu deep sleep
   }
 }
@@ -87,20 +117,39 @@ void OpenHaystack::set_payload_from_key(uint8_t *payload, uint8_t *public_key) {
 void OpenHaystack::ble_setup() {
   // Initialize non-volatile storage for the bluetooth controller
   esp_err_t err = nvs_flash_init();
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "nvs_flash_init failed: %d", err);
+    return;
+  }
 
 #ifdef USE_ARDUINO
-
+  if (!btStart()) {
+    ESP_LOGE(TAG, "btStart failed: %d", esp_bt_controller_get_status());
+    return;
+  }
 #else
   if (esp_bt_controller_get_status() != ESP_BT_CONTROLLER_STATUS_ENABLED) {
     // start bt controller
     if (esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_IDLE) {
       esp_bt_controller_config_t cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
       err = esp_bt_controller_init(&cfg);
+      if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_bt_controller_init failed: %s", esp_err_to_name(err));
+        return;
+      }
       while (esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_IDLE)
         ;
     }
     if (esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_INITED) {
       err = esp_bt_controller_enable(ESP_BT_MODE_BLE);
+      if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_bt_controller_enable failed: %s", esp_err_to_name(err));
+        return;
+      }
+    }
+    if (esp_bt_controller_get_status() != ESP_BT_CONTROLLER_STATUS_ENABLED) {
+      ESP_LOGE(TAG, "esp bt controller enable failed");
+      return;
     }
   }
 #endif
@@ -108,13 +157,29 @@ void OpenHaystack::ble_setup() {
   esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
 
   err = esp_bluedroid_init();
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "esp_bluedroid_init failed: %d", err);
+    return;
+  }
   err = esp_bluedroid_enable();
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "esp_bluedroid_enable failed: %d", err);
+    return;
+  }
 
   set_addr_from_key(global_openhaystack->random_address_, global_openhaystack->advertising_key_.data());
   set_payload_from_key(global_openhaystack->adv_data_, global_openhaystack->advertising_key_.data());
 
   err = esp_ble_gap_register_callback(OpenHaystack::gap_event_handler);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "esp_ble_gap_register_callback failed: %d", err);
+    return;
+  }
   err = esp_ble_gap_set_rand_addr(global_openhaystack->random_address_);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "esp_ble_gap_set_rand_addr failed: %s", esp_err_to_name(err));
+    return;
+  }
 
   esp_ble_gap_config_adv_data_raw((uint8_t *) &global_openhaystack->adv_data_, sizeof(global_openhaystack->adv_data_));
 }
@@ -124,14 +189,25 @@ void OpenHaystack::gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_c
   switch (event) {
     case ESP_GAP_BLE_ADV_DATA_RAW_SET_COMPLETE_EVT: {
       err = esp_ble_gap_start_advertising(&ble_adv_params);
+      if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_ble_gap_start_advertising failed: %d", err);
+      }
       break;
     }
     case ESP_GAP_BLE_ADV_START_COMPLETE_EVT: {
       err = param->adv_start_cmpl.status;
+      if (err != ESP_BT_STATUS_SUCCESS) {
+        ESP_LOGE(TAG, "BLE adv start failed: %s", esp_err_to_name(err));
+      }
       break;
     }
     case ESP_GAP_BLE_ADV_STOP_COMPLETE_EVT: {
       err = param->adv_start_cmpl.status;
+      if (err != ESP_BT_STATUS_SUCCESS) {
+        ESP_LOGE(TAG, "BLE adv stop failed: %s", esp_err_to_name(err));
+      } else {
+        ESP_LOGD(TAG, "BLE stopped advertising successfully");
+      }
       break;
     }
     default:
