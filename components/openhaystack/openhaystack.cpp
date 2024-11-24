@@ -82,7 +82,7 @@ void OpenHaystack::ble_core_task(void *params) {
     }
     ESP_LOGD(TAG, "Started advertising for 5 seconds...");
     
-    vTaskDelay(5000 / portTICK_PERIOD_MS);
+    vTaskDelay(5000 / portTICK_PERIOD_MS);  // Quảng bá trong 10 giây
 
     // Dừng quảng bá sau 5 giây
     err = esp_ble_gap_stop_advertising();
@@ -92,9 +92,9 @@ void OpenHaystack::ble_core_task(void *params) {
     ESP_LOGD(TAG, "Stopped advertising.");
 
     // Đưa ESP32 vào chế độ deep sleep trong 120 giây
-    ESP_LOGD(TAG, "Entering deep sleep for 120 seconds...");
-    esp_sleep_enable_timer_wakeup(120000000);  // Thiết lập thời gian wakeup 120 giây
-    esp_deep_sleep_start();
+    ESP_LOGD(TAG, "Entering deep sleep for 12 seconds...");
+    esp_sleep_enable_timer_wakeup(120000000);  // Thiết lập thời gian wakeup 60 giây
+    esp_deep_sleep_start();  // Bắt đầu deep sleep
   }
 }
 
@@ -132,11 +132,6 @@ void OpenHaystack::ble_setup() {
     // start bt controller
     if (esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_IDLE) {
       esp_bt_controller_config_t cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
-
-      // Sử dụng Internal RC Oscillator
-      cfg.xtal_freq = 0;  // 0: Internal RC Oscillator
-      cfg.mode = ESP_BT_MODE_BLE;
-
       err = esp_bt_controller_init(&cfg);
       if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_bt_controller_init failed: %s", esp_err_to_name(err));
